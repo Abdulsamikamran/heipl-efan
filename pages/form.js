@@ -429,9 +429,19 @@ export default function FormPage() {
 
     getAutocompleteSuggestions(name, formDataRef.current[name] || "").then(
       (suggestions) => {
-        setActiveSuggestions((prev) => ({ ...prev, [name]: suggestions }));
         if (suggestions.length > 0) {
+          setActiveSuggestions((prev) => ({ ...prev, [name]: suggestions }));
           setShowSuggestions((prev) => ({ ...prev, [name]: true }));
+        } else {
+          const schemaField = FORM_SCHEMA.find((f) => f.name === name);
+          const fallback =
+            schemaField && Array.isArray(schemaField.options)
+              ? schemaField.options
+              : [];
+          setActiveSuggestions((prev) => ({ ...prev, [name]: fallback }));
+          if (fallback.length > 0) {
+            setShowSuggestions((prev) => ({ ...prev, [name]: true }));
+          }
         }
       },
     );
@@ -945,12 +955,7 @@ export default function FormPage() {
           })}
         </div>
 
-        <div
-          className="fixed bottom-16 left-0 right-0 flex gap-3 border-t border-gray-200 bg-white px-4 py-3 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.07)]"
-          style={{
-            paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))",
-          }}
-        >
+        <div className="mt-6 flex gap-3 border-t border-gray-200 bg-white px-4 py-3">
           <button
             type="button"
             onClick={() => saveDraft()}
@@ -984,12 +989,6 @@ export default function FormPage() {
             )}
           </button>
         </div>
-
-        {isSaving && (
-          <div className="fixed right-2 top-14 rounded-full bg-gray-800 px-2 py-1 text-xs text-white opacity-75">
-            Saving...
-          </div>
-        )}
 
         <div className="pointer-events-none fixed bottom-32 left-4 right-4 z-50 flex flex-col gap-2">
           {toasts.map((toast) => (
