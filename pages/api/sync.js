@@ -10,7 +10,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { records, agentEmail } = req.body || {};
+  const { records, agentEmail, photoUrls = {} } = req.body || {};
 
   if (!Array.isArray(records) || records.length === 0) {
     return res.status(400).json({ error: 'No records provided' });
@@ -30,10 +30,7 @@ export default async function handler(req, res) {
   try {
     await ensureHeaderRow(sheets);
   } catch (error) {
-    return res.status(500).json({
-      error: 'Failed to ensure header row',
-      details: error.message,
-    });
+    console.warn('ensureHeaderRow failed, continuing with append:', error.message);
   }
 
   const chunks = [];
@@ -49,7 +46,9 @@ export default async function handler(req, res) {
     const chunk = chunks[i];
 
     try {
-      const rows = chunk.map((record) => mapRecordToRow(record, agentEmail || ''));
+      const rows = chunk.map((record) =>
+        mapRecordToRow(record, agentEmail || '', photoUrls[record.id] || {}),
+      );
       await appendRows(sheets, rows);
       chunk.forEach((record) => syncedIds.push(record.id));
     } catch (error) {

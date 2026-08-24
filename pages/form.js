@@ -10,6 +10,7 @@ import {
   AUTOCOMPLETE_FIELDS,
   AGENT_PREFILL_FIELDS,
 } from "../lib/formSchema";
+import PhotoCapture from "../components/PhotoCapture";
 import {
   addRecord,
   updateRecord,
@@ -23,13 +24,13 @@ import {
   generateFormNumber,
   generateUUID,
   getToday,
-  getCurrentMonth,
   titleCaseValue,
   formatDateDisplay,
   isEmpty,
 } from "../lib/utils";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { syncPendingRecords } from "../lib/sync";
+import { useAuth, AuthSpinner } from "../lib/useAuth";
 import TextInput from "../components/ui/TextInput";
 import SelectInput from "../components/ui/SelectInput";
 import RadioGroup from "../components/ui/RadioGroup";
@@ -38,6 +39,7 @@ import TextAreaInput from "../components/ui/TextAreaInput";
 import NumberInput from "../components/ui/NumberInput";
 import FormSection from "../components/ui/FormSection";
 import ErrorSummary from "../components/ui/ErrorSummary";
+import CheckboxInput from "../components/ui/CheckboxInput";
 
 const METADATA_FIELDS = [
   "id",
@@ -222,11 +224,10 @@ function PostSubmitModal({ onNewForm, onViewRecords }) {
   );
 }
 
-function buildAgentDefaults(settings = {}) {
+function buildAgentDefaults(settings = {}, user = null) {
   const defaults = {
     formNumber: generateFormNumber(),
     date: getToday(),
-    billMonthLatest: getCurrentMonth(),
   };
 
   AGENT_PREFILL_FIELDS.forEach((fieldName) => {
@@ -234,12 +235,19 @@ function buildAgentDefaults(settings = {}) {
     defaults[fieldName] = settings[settingKey] || "";
   });
 
+  if (user) {
+    defaults.agentEmployeeId = user.id;
+    defaults.fieldAgentName = user.name || defaults.fieldAgentName;
+  }
+
   return defaults;
 }
 
 export default function FormPage() {
   const router = useRouter();
+  const { user, isLoading: authLoading, isAdmin } = useAuth(true);
   const { isOnline } = useOnlineStatus();
+  const [gateReady, setGateReady] = useState(false);
   const [formData, dispatch] = useReducer(
     formReducer,
     undefined,
@@ -280,6 +288,8 @@ export default function FormPage() {
       const now = new Date().toISOString();
       const recordObj = {
         ...formDataRef.current,
+        agentEmployeeId: user?.id || formDataRef.current.agentEmployeeId,
+        fieldAgentName: user?.name || formDataRef.current.fieldAgentName,
         syncStatus: "draft",
         updatedAt: now,
       };
@@ -305,10 +315,9 @@ export default function FormPage() {
     } finally {
       setIsSaving(false);
     }
-  }, [recordId, showToast]);
+  }, [recordId, showToast, user]);
 
   const handleCrossFieldLogic = useCallback((changedField, newValue) => {
-    const currentData = formDataRef.current;
     const autoFills = {};
 
     switch (changedField) {
@@ -330,51 +339,8 @@ export default function FormPage() {
         autoFills.check6SimSameCnic =
           newValue === "Yes – confirmed" ? "Yes" : "No";
         break;
-      case "connectionType":
-        autoFills.check7ResidentialOnly =
-          newValue === "Residential (Domestic)" ? "Yes" : "No";
-        break;
-      case "fanDeliveryAddressSame":
-        if (newValue === "Yes") {
-          autoFills.alternateDeliveryAddress =
-            currentData.completeDeliveryAddress;
-        }
-        break;
-      case "completeDeliveryAddress":
-        if (currentData.fanDeliveryAddressSame === "Yes") {
-          autoFills.alternateDeliveryAddress = newValue;
-        }
-        break;
       default:
         break;
-    }
-
-    const currentChecks = {
-      check1HomeOwner: autoFills.check1HomeOwner ?? currentData.check1HomeOwner,
-      check2BillInName:
-        autoFills.check2BillInName ?? currentData.check2BillInName,
-      check3CnicValid: currentData.check3CnicValid,
-      check4FewerThan4Late:
-        autoFills.check4FewerThan4Late ?? currentData.check4FewerThan4Late,
-      check5NoActiveInstallment:
-        autoFills.check5NoActiveInstallment ??
-        currentData.check5NoActiveInstallment,
-      check6SimSameCnic:
-        autoFills.check6SimSameCnic ?? currentData.check6SimSameCnic,
-      check7ResidentialOnly:
-        autoFills.check7ResidentialOnly ?? currentData.check7ResidentialOnly,
-    };
-
-    const allYes = Object.values(currentChecks).every(
-      (value) => value === "Yes",
-    );
-    const anyNo = Object.values(currentChecks).some((value) => value === "No");
-
-    if (allYes) {
-      autoFills.fieldAgentAssessment =
-        "LIKELY ELIGIBLE – Forward for data entry";
-    } else if (anyNo) {
-      autoFills.fieldAgentAssessment = "LIKELY INELIGIBLE – Do not forward ";
     }
 
     if (Object.keys(autoFills).length > 0) {
@@ -395,12 +361,12 @@ export default function FormPage() {
         return next;
       });
 
-      if (AUTOCOMPLETE_FIELDS.includes(name) && value.length >= 1) {
+      if (typeof value === "string" && AUTOCOMPLETE_FIELDS.includes(name) && value.length >= 1) {
         getAutocompleteSuggestions(name, value).then((suggestions) => {
           setActiveSuggestions((prev) => ({ ...prev, [name]: suggestions }));
           setShowSuggestions((prev) => ({ ...prev, [name]: true }));
         });
-      } else if (AUTOCOMPLETE_FIELDS.includes(name) && value.length === 0) {
+      } else if (typeof value === "string" && AUTOCOMPLETE_FIELDS.includes(name) && value.length === 0) {
         getAutocompleteSuggestions(name, "").then((suggestions) => {
           setActiveSuggestions((prev) => ({ ...prev, [name]: suggestions }));
         });
@@ -408,6 +374,18 @@ export default function FormPage() {
       }
 
       formDataRef.current = { ...formDataRef.current, [name]: value };
+
+      if (name === "cnicLifetime" && value === true) {
+        dispatch({ type: "SET_FIELD", name: "cnicExpiry", value: "" });
+        formDataRef.current.cnicExpiry = "";
+        setErrors((prev) => {
+          if (!prev.cnicExpiry) return prev;
+          const next = { ...prev };
+          delete next.cnicExpiry;
+          return next;
+        });
+      }
+
       handleCrossFieldLogic(name, value);
     },
     [handleCrossFieldLogic],
@@ -500,7 +478,18 @@ export default function FormPage() {
         if (formDataRef.current[condField] !== condValue) return;
       }
 
+      if (field.name === "cnicExpiry" && formDataRef.current.cnicLifetime) {
+        return;
+      }
+
       const value = formDataRef.current[field.name];
+
+      if (field.type === "checkbox") {
+        if (field.required && !value) {
+          newErrors[field.name] = `${field.label} is required`;
+        }
+        return;
+      }
 
       if (field.required && isEmpty(value)) {
         newErrors[field.name] = `${field.label} is required`;
@@ -539,8 +528,6 @@ export default function FormPage() {
 
   const handleCopyAddress = useCallback(() => {
     const parts = [
-      formDataRef.current.housePlotNumber,
-      formDataRef.current.streetMohalla,
       formDataRef.current.townSectorColony,
       formDataRef.current.addressCity,
       formDataRef.current.district,
@@ -582,6 +569,8 @@ export default function FormPage() {
     const now = new Date().toISOString();
     const finalRecord = {
       ...formDataRef.current,
+      agentEmployeeId: user?.id || formDataRef.current.agentEmployeeId,
+      fieldAgentName: user?.name || formDataRef.current.fieldAgentName,
       syncStatus: "pending",
       syncError: null,
       syncedAt: null,
@@ -615,6 +604,10 @@ export default function FormPage() {
 
     showToast("Form submitted successfully!", "success");
 
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.removeItem("checklist_passed");
+    }
+
     if (isOnline) {
       syncPendingRecords().catch((error) =>
         console.error("Sync error:", error),
@@ -626,10 +619,29 @@ export default function FormPage() {
     setTimeout(() => {
       setShowPostSubmitModal(true);
     }, 800);
-  }, [isOnline, recordId, showToast, validateForm]);
+  }, [isOnline, recordId, showToast, validateForm, user]);
 
   useEffect(() => {
-    if (!router.isReady) return undefined;
+    if (!router.isReady || !user) return;
+
+    if (router.query.id) {
+      setGateReady(true);
+      return;
+    }
+
+    if (
+      typeof sessionStorage !== "undefined" &&
+      sessionStorage.getItem("checklist_passed") !== "true"
+    ) {
+      router.replace("/checklist");
+      return;
+    }
+
+    setGateReady(true);
+  }, [router.isReady, router.query.id, router, user]);
+
+  useEffect(() => {
+    if (!router.isReady || !user || !gateReady) return undefined;
 
     let cancelled = false;
 
@@ -644,6 +656,11 @@ export default function FormPage() {
         if (cancelled) return;
 
         if (record) {
+          if (!isAdmin && record.agentEmployeeId !== user.id) {
+            showToast("You can only edit your own forms", "error");
+            router.replace("/records");
+            return;
+          }
           dispatch({ type: "LOAD_RECORD", record });
           setRecordId(record.id);
         } else {
@@ -653,7 +670,10 @@ export default function FormPage() {
         return;
       }
 
-      dispatch({ type: "SET_MULTIPLE", values: buildAgentDefaults(settings) });
+      dispatch({
+        type: "SET_MULTIPLE",
+        values: buildAgentDefaults(settings, user),
+      });
     }
 
     initForm();
@@ -661,7 +681,7 @@ export default function FormPage() {
     return () => {
       cancelled = true;
     };
-  }, [router.isReady, router.query.id, router, showToast]);
+  }, [router.isReady, router.query.id, router, showToast, user, isAdmin, gateReady]);
 
   useEffect(() => {
     const intervalId = setInterval(() => {
@@ -787,7 +807,30 @@ export default function FormPage() {
         break;
 
       case "date":
-        inputElement = <DateInput {...commonProps} inputRef={refCallback} />;
+        inputElement = (
+          <DateInput
+            {...commonProps}
+            required={
+              field.name === "cnicExpiry"
+                ? !formData.cnicLifetime
+                : field.required
+            }
+            disabled={
+              field.name === "cnicExpiry" ? Boolean(formData.cnicLifetime) : false
+            }
+            inputRef={refCallback}
+          />
+        );
+        break;
+
+      case "checkbox":
+        inputElement = (
+          <CheckboxInput
+            {...commonProps}
+            value={Boolean(formData[field.name])}
+            inputRef={refCallback}
+          />
+        );
         break;
 
       case "textarea":
@@ -816,18 +859,6 @@ export default function FormPage() {
     }
 
     let warningBanner = null;
-
-    if (
-      field.name === "connectionType" &&
-      ["Commercial", "Agricultural"].includes(formData.connectionType)
-    ) {
-      warningBanner = (
-        <WarningBanner
-          message="Only Residential (Domestic) connections qualify for the E-Fan program. This application may be rejected."
-          type="warning"
-        />
-      );
-    }
 
     if (
       field.name === "isHomeOwner" &&
@@ -888,11 +919,14 @@ export default function FormPage() {
     );
   };
 
+  if (authLoading || !gateReady) return <AuthSpinner />;
+  if (!user) return null;
+
   return (
     <>
       <Head>
         <title>
-          {recordId ? "Edit Form" : "New Form"} | PM E-Fan Data Collection
+          {recordId ? "Edit Form" : "New Form"} | HEIPL-E2P
         </title>
       </Head>
 
@@ -921,15 +955,30 @@ export default function FormPage() {
                     <p>
                       I, the undersigned, hereby declare that all information
                       provided above is true and correct. I consent to the
-                      submission of my data on the PM E-Fan Portal (efan.gov.pk)
-                      by the authorised organisation, and to DISCO/NEECA
-                      verifying my electricity records for eligibility purposes.
-                      I understand that providing false information may result
-                      in rejection of my application.
+                      submission of my data on the HEIPL-E2P Portal by the
+                      authorised organisation, and to DISCO verifying my
+                      electricity records for eligibility purposes. I understand
+                      that providing false information may result in rejection
+                      of my application.
                     </p>
                     <p className="mt-3 text-xs italic text-gray-500">
-                      (Consumer verbal consent obtained by field agent)
+                      Tick the box below after obtaining consumer consent.
                     </p>
+                    <div className="mt-4">
+                      {renderField(
+                        getFieldsBySection("G").find(
+                          (field) => field.name === "consumerConsent",
+                        ) || {
+                          name: "consumerConsent",
+                          label:
+                            "I confirm that the consumer has given consent and that the information above is true and correct",
+                          type: "checkbox",
+                          required: true,
+                          helpText: "",
+                          gridSpan: "full",
+                        },
+                      )}
+                    </div>
                   </div>
                 </FormSection>
               );
@@ -949,6 +998,52 @@ export default function FormPage() {
               >
                 <div className="col-span-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
                   {sectionFields.map((field) => renderField(field))}
+                  {section.key === "E" && (
+                    <div className="col-span-2 mt-2 border-t border-gray-100 pt-4">
+                      <p className="mb-3 text-sm font-medium text-gray-700">
+                        📸 Document Photos
+                      </p>
+                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                        <PhotoCapture
+                          recordId={recordId}
+                          photoType="consumer"
+                          label="Consumer"
+                          frontCamera={true}
+                          onPhotoSaved={() => {
+                            if (!recordId) saveDraft();
+                          }}
+                          onPhotoRemoved={() => {}}
+                        />
+                        <PhotoCapture
+                          recordId={recordId}
+                          photoType="cnicFront"
+                          label="CNIC Front"
+                          onPhotoSaved={() => {
+                            if (!recordId) saveDraft();
+                          }}
+                          onPhotoRemoved={() => {}}
+                        />
+                        <PhotoCapture
+                          recordId={recordId}
+                          photoType="cnicBack"
+                          label="CNIC Back"
+                          onPhotoSaved={() => {
+                            if (!recordId) saveDraft();
+                          }}
+                          onPhotoRemoved={() => {}}
+                        />
+                        <PhotoCapture
+                          recordId={recordId}
+                          photoType="bill"
+                          label="Elec. Bill"
+                          onPhotoSaved={() => {
+                            if (!recordId) saveDraft();
+                          }}
+                          onPhotoRemoved={() => {}}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </FormSection>
             );
@@ -1014,12 +1109,7 @@ export default function FormPage() {
           <PostSubmitModal
             onNewForm={() => {
               setShowPostSubmitModal(false);
-              const newDefaults = buildAgentDefaults(agentSettings);
-              dispatch({ type: "RESET_FORM", defaults: newDefaults });
-              setRecordId(null);
-              setErrors({});
-              isDirtyRef.current = false;
-              window.scrollTo({ top: 0, behavior: "smooth" });
+              router.push("/checklist");
             }}
             onViewRecords={() => router.push("/records")}
           />

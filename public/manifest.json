@@ -1,13 +1,13 @@
 {
-  "name": "PM E-Fan Data Collection",
-  "short_name": "E-Fan Form",
-  "description": "Field data collection app for PM E-Fan Replacement Program - Government of Pakistan",
+  "name": "HEIPL-E2P Energy Efficient Program",
+  "short_name": "HEIPL-E2P",
+  "description": "Field data collection for HEIPL Energy Efficient Program",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#ffffff",
-  "theme_color": "#006633",
+  "theme_color": "#0D212E",
   "icons": [
     {
       "src": "/icons/icon-192.png",

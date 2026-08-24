@@ -1,24 +1,30 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import Head from 'next/head';
-import { useRouter } from 'next/router';
-import Layout from '../components/Layout';
-import SyncStatus from '../components/SyncStatus';
-import { getAllRecords, getSetting } from '../lib/db';
-import { timeAgo } from '../lib/utils';
+import { useState, useEffect, useCallback, useRef } from "react";
+import Head from "next/head";
+import { useRouter } from "next/router";
+import Layout from "../components/Layout";
+import SyncStatus from "../components/SyncStatus";
+import { getAllRecords } from "../lib/db";
+import { timeAgo } from "../lib/utils";
+import { useAuth, AuthSpinner } from "../lib/useAuth";
+import { filterRecordsForUser } from "../lib/auth";
 
 function StatCard({ label, value, color, icon, hidden }) {
   if (hidden) return null;
 
   const colorStyles = {
-    green: 'bg-green-50 border-green-100 text-green-700',
-    amber: 'bg-amber-50 border-amber-100 text-amber-700',
-    red: 'bg-red-50 border-red-100 text-red-700',
-    blue: 'bg-blue-50 border-blue-100 text-blue-700',
-    gray: 'bg-gray-50 border-gray-100 text-gray-400',
+    green: "bg-green-50 border-green-100 text-green-700",
+    amber: "bg-amber-50 border-amber-100 text-amber-700",
+    red: "bg-red-50 border-red-100 text-red-700",
+    blue: "bg-blue-50 border-blue-100 text-blue-700",
+    gray: "bg-gray-50 border-gray-100 text-gray-400",
   };
 
-  const valueColor = colorStyles[color]?.split(' ').find((c) => c.startsWith('text-')) || 'text-gray-700';
-  const cardStyle = colorStyles[color]?.replace(valueColor, '').trim() || 'bg-gray-50 border-gray-100';
+  const valueColor =
+    colorStyles[color]?.split(" ").find((c) => c.startsWith("text-")) ||
+    "text-gray-700";
+  const cardStyle =
+    colorStyles[color]?.replace(valueColor, "").trim() ||
+    "bg-gray-50 border-gray-100";
 
   return (
     <div className={`rounded-xl border p-4 ${cardStyle}`}>
@@ -32,12 +38,13 @@ function StatCard({ label, value, color, icon, hidden }) {
 }
 
 function RecentRecordCard({ record, onClick }) {
-  const statusClass = {
-    pending: 'bg-amber-100 text-amber-700',
-    synced: 'bg-green-100 text-green-700',
-    failed: 'bg-red-100 text-red-700',
-    draft: 'bg-gray-100 text-gray-600',
-  }[record.syncStatus] || 'bg-gray-100 text-gray-600';
+  const statusClass =
+    {
+      pending: "bg-amber-100 text-amber-700",
+      synced: "bg-green-100 text-green-700",
+      failed: "bg-red-100 text-red-700",
+      draft: "bg-gray-100 text-gray-600",
+    }[record.syncStatus] || "bg-gray-100 text-gray-600";
 
   return (
     <button
@@ -48,20 +55,24 @@ function RecentRecordCard({ record, onClick }) {
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <p className="truncate font-medium text-gray-800">
-            {record.fullName || 'Unnamed'}
+            {record.fullName || "Unnamed"}
           </p>
           {record.cnicNumber && (
             <p className="text-xs text-gray-500">{record.cnicNumber}</p>
           )}
           <p className="text-xs text-gray-400">
-            {[record.city, record.district].filter(Boolean).join(', ')}
+            {[record.city, record.district].filter(Boolean).join(", ")}
           </p>
         </div>
         <div className="flex flex-col items-end gap-1">
-          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusClass}`}>
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusClass}`}
+          >
             {record.syncStatus}
           </span>
-          <span className="text-[10px] text-gray-400">{timeAgo(record.createdAt)}</span>
+          <span className="text-[10px] text-gray-400">
+            {timeAgo(record.createdAt)}
+          </span>
         </div>
       </div>
     </button>
@@ -88,6 +99,7 @@ function DashboardSkeleton() {
 
 export default function DashboardPage() {
   const router = useRouter();
+  const { user, isLoading: authLoading } = useAuth(true);
   const [stats, setStats] = useState({
     total: 0,
     today: 0,
@@ -96,67 +108,66 @@ export default function DashboardPage() {
     synced: 0,
   });
   const [recentRecords, setRecentRecords] = useState([]);
-  const [lastSyncTime, setLastSyncTime] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [agentName, setAgentName] = useState('');
 
   const touchStartY = useRef(0);
   const touchStartScrollTop = useRef(0);
   const pullTriggered = useRef(false);
 
   const loadDashboardData = useCallback(async () => {
+    if (!user) return;
     try {
-      const [allRecords, agentNameSetting, lastSync] = await Promise.all([
-        getAllRecords(),
-        getSetting('agentName'),
-        getSetting('lastSyncTime'),
-      ]);
+      const rawRecords = await getAllRecords();
+
+      const allRecords = filterRecordsForUser(rawRecords, user, user.role === "admin");
 
       const today = new Date().toDateString();
       const todayRecords = allRecords.filter(
-        (record) => new Date(record.createdAt).toDateString() === today
+        (record) => new Date(record.createdAt).toDateString() === today,
       );
 
       setStats({
         total: allRecords.length,
         today: todayRecords.length,
-        pending: allRecords.filter((record) => record.syncStatus === 'pending').length,
-        failed: allRecords.filter((record) => record.syncStatus === 'failed').length,
-        synced: allRecords.filter((record) => record.syncStatus === 'synced').length,
+        pending: allRecords.filter((record) => record.syncStatus === "pending")
+          .length,
+        failed: allRecords.filter((record) => record.syncStatus === "failed")
+          .length,
+        synced: allRecords.filter((record) => record.syncStatus === "synced")
+          .length,
       });
 
       setRecentRecords(allRecords.slice(0, 5));
-      setLastSyncTime(lastSync);
-      setAgentName(agentNameSetting || '');
     } catch (error) {
-      console.error('Dashboard load error:', error);
+      console.error("Dashboard load error:", error);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
+    if (!user) return;
     loadDashboardData();
 
     const handleFocus = () => {
       loadDashboardData();
     };
 
-    window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
   }, [loadDashboardData]);
 
   const handleTouchStart = (event) => {
     touchStartY.current = event.touches[0].clientY;
-    const main = document.querySelector('main');
+    const main = document.querySelector("main");
     touchStartScrollTop.current = main?.scrollTop || 0;
     pullTriggered.current = false;
   };
 
   const handleTouchMove = (event) => {
-    const main = document.querySelector('main');
+    const main = document.querySelector("main");
     const scrollTop = main?.scrollTop || 0;
     const currentY = event.touches[0].clientY;
     const pullDistance = currentY - touchStartY.current;
@@ -173,18 +184,19 @@ export default function DashboardPage() {
     touchStartScrollTop.current = 0;
   };
 
+  if (authLoading) return <AuthSpinner />;
+  if (!user) return null;
+
   return (
     <>
       <Head>
-        <title>Dashboard | PM E-Fan Data Collection</title>
+        <title>HEIPL-E2P Dashboard</title>
       </Head>
 
-      <Layout title="PM E-Fan Data Collection 🇵🇰">
+      <Layout title="HEIPL-E2P">
         {isRefreshing && (
           <div className="flex justify-center pt-4">
-            <div
-              className="h-6 w-6 animate-spin rounded-full border-2 border-primary-600 border-t-transparent"
-            />
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
           </div>
         )}
 
@@ -194,34 +206,53 @@ export default function DashboardPage() {
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
         >
-          {agentName && (
-            <div className="text-sm text-gray-600">
-              Welcome, <span className="font-medium text-gray-800">{agentName}</span>
-            </div>
-          )}
+          <div>
+            <h2 className="text-lg font-bold text-navy-600">
+              HEIPL-E2P Energy Efficient Program
+            </h2>
+            <p className="text-sm text-gray-600">
+              Welcome,{" "}
+              <span className="font-medium text-gray-800">{user.name}</span>
+            </p>
+          </div>
 
           {isLoading ? (
             <DashboardSkeleton />
           ) : (
             <>
               <div className="grid grid-cols-2 gap-3">
-                <StatCard label="Today's Forms" value={stats.today} color="green" icon="📝" />
+                <StatCard
+                  label="Today's Forms"
+                  value={stats.today}
+                  color="green"
+                  icon="📝"
+                />
                 <StatCard
                   label="Pending Sync"
                   value={stats.pending}
-                  color={stats.pending > 0 ? 'amber' : 'green'}
+                  color={stats.pending > 0 ? "amber" : "green"}
                   icon="⏳"
                 />
-                <StatCard label="Total Records" value={stats.total} color="blue" icon="📊" />
+                <StatCard
+                  label="Total Records"
+                  value={stats.total}
+                  color="blue"
+                  icon="📊"
+                />
                 <StatCard
                   label="Failed Sync"
                   value={stats.failed}
-                  color={stats.failed > 0 ? 'red' : 'gray'}
+                  color={stats.failed > 0 ? "red" : "gray"}
                   icon="❌"
                   hidden={stats.failed === 0}
                 />
                 {stats.failed === 0 && (
-                  <StatCard label="Synced" value={stats.synced} color="green" icon="✅" />
+                  <StatCard
+                    label="Synced"
+                    value={stats.synced}
+                    color="green"
+                    icon="✅"
+                  />
                 )}
               </div>
 
@@ -232,7 +263,7 @@ export default function DashboardPage() {
 
                 <button
                   type="button"
-                  onClick={() => router.push('/form')}
+                  onClick={() => router.push("/checklist")}
                   className="btn-primary flex w-full items-center justify-center gap-3 rounded-xl py-4 text-base font-semibold"
                 >
                   <span className="text-2xl">📋</span>
@@ -242,7 +273,7 @@ export default function DashboardPage() {
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={() => router.push('/records')}
+                    onClick={() => router.push("/records")}
                     className="btn-secondary flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-medium"
                   >
                     📁 View Records
@@ -250,12 +281,12 @@ export default function DashboardPage() {
 
                   <button
                     type="button"
-                    onClick={() => router.push('/records?filter=pending')}
+                    onClick={() => router.push("/records?filter=pending")}
                     disabled={stats.pending === 0}
                     className={`flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-medium ${
                       stats.pending > 0
-                        ? 'bg-amber-500 text-white'
-                        : 'btn-secondary opacity-50'
+                        ? "bg-amber-500 text-white"
+                        : "btn-secondary opacity-50"
                     }`}
                   >
                     ⏳ Pending ({stats.pending})
@@ -273,7 +304,7 @@ export default function DashboardPage() {
                     </h2>
                     <button
                       type="button"
-                      onClick={() => router.push('/records')}
+                      onClick={() => router.push("/records")}
                       className="text-sm text-primary-600"
                     >
                       View all →
@@ -295,9 +326,12 @@ export default function DashboardPage() {
               {stats.total === 0 && (
                 <div className="py-12 text-center">
                   <div className="mb-4 text-5xl">📋</div>
-                  <h3 className="mb-2 font-semibold text-gray-700">No forms yet</h3>
+                  <h3 className="mb-2 font-semibold text-gray-700">
+                    No forms yet
+                  </h3>
                   <p className="mb-6 text-sm text-gray-500">
-                    Tap &quot;Start New Form&quot; to collect your first consumer record
+                    Tap &quot;Start New Form&quot; to collect your first
+                    consumer record
                   </p>
                 </div>
               )}

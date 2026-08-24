@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import OfflineBanner from './OfflineBanner';
+import BrandLogo from './BrandLogo';
 import { getPendingCount } from '../lib/db';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 
+const ACTIVE_COLOR = '#F58220';
+const INACTIVE_COLOR = '#9ca3af';
+
 function HouseIcon({ active }) {
-  const color = active ? '#006633' : '#9ca3af';
+  const color = active ? ACTIVE_COLOR : INACTIVE_COLOR;
   return (
     <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={2}>
       <path
@@ -18,7 +22,7 @@ function HouseIcon({ active }) {
 }
 
 function PlusIcon({ active }) {
-  const color = active ? '#006633' : '#9ca3af';
+  const color = active ? ACTIVE_COLOR : INACTIVE_COLOR;
   return (
     <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -27,7 +31,7 @@ function PlusIcon({ active }) {
 }
 
 function ListIcon({ active }) {
-  const color = active ? '#006633' : '#9ca3af';
+  const color = active ? ACTIVE_COLOR : INACTIVE_COLOR;
   return (
     <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
@@ -36,7 +40,7 @@ function ListIcon({ active }) {
 }
 
 function GearIcon({ active }) {
-  const color = active ? '#006633' : '#9ca3af';
+  const color = active ? ACTIVE_COLOR : INACTIVE_COLOR;
   return (
     <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={2}>
       <path
@@ -94,7 +98,7 @@ export default function Layout({ children, title }) {
     },
     {
       label: 'New Form',
-      href: '/form',
+      href: '/checklist',
       icon: (active) => <PlusIcon active={active} />,
     },
     {
@@ -112,14 +116,18 @@ export default function Layout({ children, title }) {
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-50">
-      <header
-        className="fixed left-0 right-0 top-0 z-40 flex h-14 items-center bg-primary-600 px-4 text-white shadow-md"
-      >
+      <header className="fixed left-0 right-0 top-0 z-40 flex h-14 items-center bg-navy-600 px-4 text-white shadow-md">
         {router.pathname !== '/' && (
           <button
             type="button"
-            onClick={() => router.back()}
-            className="-ml-1 mr-3 touch-manipulation rounded-lg p-1 active:bg-primary-700"
+            onClick={() => {
+              if (router.pathname === '/checklist') {
+                router.push('/');
+                return;
+              }
+              router.back();
+            }}
+            className="-ml-1 mr-3 touch-manipulation rounded-lg p-1 active:bg-navy-700"
             aria-label="Go back"
           >
             <svg
@@ -136,6 +144,7 @@ export default function Layout({ children, title }) {
           </button>
         )}
 
+        <BrandLogo size={32} className="mr-2 h-8 w-8 rounded-md bg-white p-0.5" />
         <h1 className="flex-1 truncate text-lg font-semibold">{title}</h1>
 
         <OnlineIndicator />
@@ -160,7 +169,9 @@ export default function Layout({ children, title }) {
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         {tabs.map((tab) => {
-          const active = router.pathname === tab.href;
+          const active =
+            router.pathname === tab.href ||
+            (tab.href === '/checklist' && router.pathname === '/form');
 
           return (
             <button
