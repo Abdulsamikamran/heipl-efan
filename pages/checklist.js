@@ -27,7 +27,9 @@ const CHECKLIST_ITEMS = [
   {
     key: 'noOldInstallments',
     question: 'Does the consumer have no active old installments on the bill?',
-    helpText: 'Any existing installment plan must be fully paid off',
+    helpText:
+      'Answer Yes or No — this does not affect eligibility. You may still proceed.',
+    optional: true,
   },
 ];
 
@@ -38,12 +40,14 @@ const EMPTY_ANSWERS = {
   noOldInstallments: null,
 };
 
-function ChecklistItem({ number, question, helpText, value, onChange }) {
+function ChecklistItem({ number, question, helpText, value, onChange, optional }) {
   const badgeClass =
     value === true
       ? 'bg-green-600 text-white'
       : value === false
-        ? 'bg-red-600 text-white'
+        ? optional
+          ? 'bg-primary-600 text-white'
+          : 'bg-red-600 text-white'
         : 'bg-gray-200 text-gray-600';
 
   return (
@@ -74,7 +78,9 @@ function ChecklistItem({ number, question, helpText, value, onChange }) {
               onClick={() => onChange(false)}
               className={`flex-1 rounded-lg border py-2 text-sm font-semibold ${
                 value === false
-                  ? 'border-red-600 bg-red-600 text-white'
+                  ? optional
+                    ? 'border-primary-600 bg-primary-600 text-white'
+                    : 'border-red-600 bg-red-600 text-white'
                   : 'border-gray-300 bg-white text-gray-600'
               }`}
             >
@@ -92,10 +98,15 @@ export default function ChecklistPage() {
   const { user, isLoading } = useAuth(true);
   const [answers, setAnswers] = useState(EMPTY_ANSWERS);
 
+  const REQUIRED_KEYS = CHECKLIST_ITEMS.filter((item) => !item.optional).map(
+    (item) => item.key,
+  );
+
   const values = Object.values(answers);
   const allAnswered = values.every((value) => value !== null);
-  const allPassed = allAnswered && values.every((value) => value === true);
-  const anyFailed = values.some((value) => value === false);
+  const requiredPassed = REQUIRED_KEYS.every((key) => answers[key] === true);
+  const allPassed = allAnswered && requiredPassed;
+  const anyFailed = REQUIRED_KEYS.some((key) => answers[key] === false);
   const answeredCount = values.filter((value) => value !== null).length;
 
   const buttonLabel = useMemo(() => {
@@ -140,6 +151,7 @@ export default function ChecklistPage() {
                 number={index + 1}
                 question={item.question}
                 helpText={item.helpText}
+                optional={item.optional}
                 value={answers[item.key]}
                 onChange={(val) =>
                   setAnswers((prev) => ({ ...prev, [item.key]: val }))

@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Head from "next/head";
 import { useRouter } from "next/router";
 import Layout from "../components/Layout";
 import { getAllRecords, deleteRecord, updateRecord, deletePhotosForRecord } from "../lib/db";
-import { syncPendingRecords, retryFailedRecords } from "../lib/sync";
+import { syncPendingRecords, retryFailedRecords, pullRecordsFromSheet, deleteRecordFromSheet } from "../lib/sync";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { timeAgo } from "../lib/utils";
 import { useAuth, AuthSpinner } from "../lib/useAuth";
@@ -65,6 +65,13 @@ function RecordCard({ record, onEdit, onDelete, onRetry, isOnline }) {
 
         {locationParts && (
           <p className="mt-1 text-xs text-gray-400">{locationParts}</p>
+        )}
+
+        {(record.submittedByEmail || record.fieldAgentName) && (
+          <p className="mt-2 text-xs text-navy-600">
+            Uploaded by {record.fieldAgentName || "agent"}
+            {record.submittedByEmail ? ` (${record.submittedByEmail})` : ""}
+          </p>
         )}
 
         <div className="mt-3 flex items-center justify-between">
@@ -160,10 +167,16 @@ export default function RecordsPage() {
   const [filteredRecords, setFilteredRecords] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
+  const [agentFilter, setAgentFilter] = useState("");
+  const [districtFilter, setDistrictFilter] = useState("");
+  const [cityFilter, setCityFilter] = useState("");
+  const [provinceFilter, setProvinceFilter] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isPulling, setIsPulling] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
+  const pulledOnceRef = useRef(false);
 
   const showToast = useCallback((message, type) => {
     setToastMessage({ message, type });
@@ -177,6 +190,19 @@ export default function RecordsPage() {
     setIsLoading(false);
   }, [user, isAdmin]);
 
+  const handlePullFromSheet = useCallback(async () => {
+    if (!isAdmin || !isOnline) return;
+    setIsPulling(true);
+    try {
+      const result = await pullRecordsFromSheet();
+      await loadRecords();
+      showToast(`Loaded ${result.pulled} forms from Google Sheets`, "success");
+    } catch (error) {
+      showToast(error.message || "Failed to load from Google Sheets", "error");
+    }
+    setIsPulling(false);
+  }, [isAdmin, isOnline, loadRecords, showToast]);
+
   useEffect(() => {
     if (router.isReady && router.query.filter) {
       setActiveFilter(String(router.query.filter));
@@ -188,10 +214,39 @@ export default function RecordsPage() {
   }, [loadRecords]);
 
   useEffect(() => {
+    if (!isAdmin || !isOnline || authLoading || pulledOnceRef.current) return;
+    pulledOnceRef.current = true;
+    handlePullFromSheet();
+  }, [isAdmin, isOnline, authLoading, handlePullFromSheet]);
+
+  useEffect(() => {
     let result = [...allRecords];
 
     if (activeFilter !== "all") {
       result = result.filter((record) => record.syncStatus === activeFilter);
+    }
+
+    if (agentFilter) {
+      result = result.filter(
+        (record) =>
+          record.submittedByEmail === agentFilter ||
+          record.agentEmployeeId === agentFilter,
+      );
+    }
+
+    if (districtFilter) {
+      result = result.filter((record) => record.district === districtFilter);
+    }
+
+    if (cityFilter) {
+      result = result.filter(
+        (record) =>
+          record.addressCity === cityFilter || record.city === cityFilter,
+      );
+    }
+
+    if (provinceFilter) {
+      result = result.filter((record) => record.province === provinceFilter);
     }
 
     if (searchQuery.trim().length > 0) {
@@ -203,12 +258,23 @@ export default function RecordsPage() {
           (record.formNumber || "").toLowerCase().includes(query) ||
           (record.addressCity || "").toLowerCase().includes(query) ||
           (record.city || "").toLowerCase().includes(query) ||
-          (record.mobileNumber || "").toLowerCase().includes(query),
+          (record.mobileNumber || "").toLowerCase().includes(query) ||
+          (record.submittedByEmail || "").toLowerCase().includes(query) ||
+          (record.fieldAgentName || "").toLowerCase().includes(query) ||
+          (record.district || "").toLowerCase().includes(query),
       );
     }
 
     setFilteredRecords(result);
-  }, [allRecords, searchQuery, activeFilter]);
+  }, [
+    allRecords,
+    searchQuery,
+    activeFilter,
+    agentFilter,
+    districtFilter,
+    cityFilter,
+    provinceFilter,
+  ]);
 
   const counts = {
     all: allRecords.length,
@@ -229,6 +295,14 @@ export default function RecordsPage() {
     }
     await deletePhotosForRecord(id);
     await deleteRecord(id);
+    if (isOnline && record && (record.syncStatus === "synced" || record._sheetRow)) {
+      try {
+        await deleteRecordFromSheet(id);
+      } catch (error) {
+        console.error(error);
+        showToast("Deleted locally, but Google Sheet delete failed", "warning");
+      }
+    }
     setAllRecords((prev) => prev.filter((record) => record.id !== id));
     setDeleteConfirm(null);
     showToast("Record deleted", "info");
@@ -297,6 +371,89 @@ export default function RecordsPage() {
                 </button>
               )}
             </div>
+
+            {isAdmin && (
+              <div className="mt-3 space-y-2">
+                <button
+                  type="button"
+                  onClick={handlePullFromSheet}
+                  disabled={isPulling || !isOnline}
+                  className="btn-secondary w-full py-2 text-sm disabled:opacity-50"
+                >
+                  {isPulling ? "Loading from Google Sheets..." : "↻ Refresh from Google Sheets"}
+                </button>
+                <div className="grid grid-cols-2 gap-2">
+                  <select
+                    value={agentFilter}
+                    onChange={(event) => setAgentFilter(event.target.value)}
+                    className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-sm"
+                  >
+                    <option value="">All agents</option>
+                    {[
+                      ...new Set(
+                        allRecords
+                          .map((record) => record.submittedByEmail)
+                          .filter(Boolean),
+                      ),
+                    ].map((email) => (
+                      <option key={email} value={email}>
+                        {email}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={districtFilter}
+                    onChange={(event) => setDistrictFilter(event.target.value)}
+                    className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-sm"
+                  >
+                    <option value="">All districts</option>
+                    {[
+                      ...new Set(
+                        allRecords.map((record) => record.district).filter(Boolean),
+                      ),
+                    ].map((value) => (
+                      <option key={value} value={value}>
+                        {value}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={cityFilter}
+                    onChange={(event) => setCityFilter(event.target.value)}
+                    className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-sm"
+                  >
+                    <option value="">All cities</option>
+                    {[
+                      ...new Set(
+                        allRecords
+                          .map((record) => record.addressCity || record.city)
+                          .filter(Boolean),
+                      ),
+                    ].map((value) => (
+                      <option key={value} value={value}>
+                        {value}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={provinceFilter}
+                    onChange={(event) => setProvinceFilter(event.target.value)}
+                    className="rounded-lg border border-gray-200 bg-white px-2 py-2 text-sm"
+                  >
+                    <option value="">All provinces</option>
+                    {[
+                      ...new Set(
+                        allRecords.map((record) => record.province).filter(Boolean),
+                      ),
+                    ].map((value) => (
+                      <option key={value} value={value}>
+                        {value}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="scrollbar-hide overflow-x-auto bg-gray-50 px-4 pb-2">
@@ -427,11 +584,11 @@ export default function RecordsPage() {
                 Delete Record?
               </h3>
               <p className="mb-6 text-sm text-gray-600">
-                This record will be permanently deleted from this device.
+                This record will be deleted from this device
                 {allRecords.find((record) => record.id === deleteConfirm)
                   ?.syncStatus === "synced"
-                  ? " It has already been synced to Google Sheets."
-                  : " It has NOT been synced yet and will be lost."}
+                  ? " and from Google Sheets."
+                  : ". It has NOT been synced yet and will be lost."}
               </p>
               <div className="flex gap-3">
                 <button

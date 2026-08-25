@@ -7,6 +7,7 @@ import { getAllRecords } from "../lib/db";
 import { timeAgo } from "../lib/utils";
 import { useAuth, AuthSpinner } from "../lib/useAuth";
 import { filterRecordsForUser } from "../lib/auth";
+import { pullRecordsFromSheet } from "../lib/sync";
 
 function StatCard({ label, value, color, icon, hidden }) {
   if (hidden) return null;
@@ -63,6 +64,12 @@ function RecentRecordCard({ record, onClick }) {
           <p className="text-xs text-gray-400">
             {[record.city, record.district].filter(Boolean).join(", ")}
           </p>
+          {(record.submittedByEmail || record.fieldAgentName) && (
+            <p className="mt-1 truncate text-[11px] text-navy-600">
+              {record.fieldAgentName || "Agent"}
+              {record.submittedByEmail ? ` · ${record.submittedByEmail}` : ""}
+            </p>
+          )}
         </div>
         <div className="flex flex-col items-end gap-1">
           <span
@@ -99,7 +106,7 @@ function DashboardSkeleton() {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { user, isLoading: authLoading } = useAuth(true);
+  const { user, isLoading: authLoading, isAdmin } = useAuth(true);
   const [stats, setStats] = useState({
     total: 0,
     today: 0,
@@ -114,10 +121,25 @@ export default function DashboardPage() {
   const touchStartY = useRef(0);
   const touchStartScrollTop = useRef(0);
   const pullTriggered = useRef(false);
+  const pulledOnceRef = useRef(false);
 
   const loadDashboardData = useCallback(async () => {
     if (!user) return;
     try {
+      if (
+        user.role === "admin" &&
+        typeof navigator !== "undefined" &&
+        navigator.onLine &&
+        !pulledOnceRef.current
+      ) {
+        try {
+          await pullRecordsFromSheet();
+          pulledOnceRef.current = true;
+        } catch (error) {
+          console.error("Admin pull error:", error);
+        }
+      }
+
       const rawRecords = await getAllRecords();
 
       const allRecords = filterRecordsForUser(rawRecords, user, user.role === "admin");

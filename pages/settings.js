@@ -189,11 +189,7 @@ export default function SettingsPage() {
 
   const handleForceSyncAll = async () => {
     const failedRaw = await getRecordsByStatus("failed");
-    const failed = filterRecordsForUser(
-      failedRaw,
-      user,
-      user.role === "admin",
-    );
+    const failed = filterRecordsForUser(failedRaw, user, user.role === "admin");
     for (const record of failed) {
       await updateRecord(record.id, { syncStatus: "pending", syncError: null });
     }
@@ -213,7 +209,7 @@ export default function SettingsPage() {
 
       <Layout title="Settings">
         <div className="space-y-4 px-4 py-4 pb-8">
-          <SettingsSection title="👤 Agent Profile">
+          {/* <SettingsSection title="👤 Agent Profile">
             <div className="space-y-3">
               <SettingsInput
                 label="Full Name"
@@ -260,7 +256,7 @@ export default function SettingsPage() {
                 These details auto-fill into every new form
               </p>
             </div>
-          </SettingsSection>
+          </SettingsSection> */}
 
           <SettingsSection title="☁️ Google Sheets Sync">
             <div className="mb-3">

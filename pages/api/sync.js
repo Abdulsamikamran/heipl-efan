@@ -1,8 +1,7 @@
 import {
   getGoogleSheetsClient,
   ensureHeaderRow,
-  mapRecordToRow,
-  appendRows,
+  upsertSheetRows,
 } from '../../lib/googleSheets';
 
 export default async function handler(req, res) {
@@ -33,36 +32,16 @@ export default async function handler(req, res) {
     console.warn('ensureHeaderRow failed, continuing with append:', error.message);
   }
 
-  const chunks = [];
-  for (let i = 0; i < records.length; i += 50) {
-    chunks.push(records.slice(i, i + 50));
-  }
-
   const syncedIds = [];
   const failedIds = [];
   const errors = [];
 
-  for (let i = 0; i < chunks.length; i += 1) {
-    const chunk = chunks[i];
+  const photoUrlsById = photoUrls || {};
+  const result = await upsertSheetRows(sheets, records, photoUrlsById, agentEmail || '');
 
-    try {
-      const rows = chunk.map((record) =>
-        mapRecordToRow(record, agentEmail || '', photoUrls[record.id] || {}),
-      );
-      await appendRows(sheets, rows);
-      chunk.forEach((record) => syncedIds.push(record.id));
-    } catch (error) {
-      chunk.forEach((record) => failedIds.push(record.id));
-      errors.push(error.message);
-      console.error('Chunk sync error:', error.message);
-    }
-
-    if (i < chunks.length - 1) {
-      await new Promise((resolve) => {
-        setTimeout(resolve, 500);
-      });
-    }
-  }
+  syncedIds.push(...result.syncedIds);
+  failedIds.push(...result.failedIds);
+  errors.push(...result.errors);
 
   const responseBody = {
     success: failedIds.length === 0,

@@ -238,6 +238,7 @@ function buildAgentDefaults(settings = {}, user = null) {
   if (user) {
     defaults.agentEmployeeId = user.id;
     defaults.fieldAgentName = user.name || defaults.fieldAgentName;
+    defaults.submittedByEmail = user.email || "";
   }
 
   return defaults;
@@ -288,8 +289,10 @@ export default function FormPage() {
       const now = new Date().toISOString();
       const recordObj = {
         ...formDataRef.current,
-        agentEmployeeId: user?.id || formDataRef.current.agentEmployeeId,
-        fieldAgentName: user?.name || formDataRef.current.fieldAgentName,
+        agentEmployeeId: formDataRef.current.agentEmployeeId || user?.id || "",
+        fieldAgentName: formDataRef.current.fieldAgentName || user?.name || "",
+        submittedByEmail:
+          formDataRef.current.submittedByEmail || user?.email || "",
         syncStatus: "draft",
         updatedAt: now,
       };
@@ -361,12 +364,20 @@ export default function FormPage() {
         return next;
       });
 
-      if (typeof value === "string" && AUTOCOMPLETE_FIELDS.includes(name) && value.length >= 1) {
+      if (
+        typeof value === "string" &&
+        AUTOCOMPLETE_FIELDS.includes(name) &&
+        value.length >= 1
+      ) {
         getAutocompleteSuggestions(name, value).then((suggestions) => {
           setActiveSuggestions((prev) => ({ ...prev, [name]: suggestions }));
           setShowSuggestions((prev) => ({ ...prev, [name]: true }));
         });
-      } else if (typeof value === "string" && AUTOCOMPLETE_FIELDS.includes(name) && value.length === 0) {
+      } else if (
+        typeof value === "string" &&
+        AUTOCOMPLETE_FIELDS.includes(name) &&
+        value.length === 0
+      ) {
         getAutocompleteSuggestions(name, "").then((suggestions) => {
           setActiveSuggestions((prev) => ({ ...prev, [name]: suggestions }));
         });
@@ -569,8 +580,10 @@ export default function FormPage() {
     const now = new Date().toISOString();
     const finalRecord = {
       ...formDataRef.current,
-      agentEmployeeId: user?.id || formDataRef.current.agentEmployeeId,
-      fieldAgentName: user?.name || formDataRef.current.fieldAgentName,
+      agentEmployeeId: formDataRef.current.agentEmployeeId || user?.id || "",
+      fieldAgentName: formDataRef.current.fieldAgentName || user?.name || "",
+      submittedByEmail:
+        formDataRef.current.submittedByEmail || user?.email || "",
       syncStatus: "pending",
       syncError: null,
       syncedAt: null,
@@ -681,7 +694,15 @@ export default function FormPage() {
     return () => {
       cancelled = true;
     };
-  }, [router.isReady, router.query.id, router, showToast, user, isAdmin, gateReady]);
+  }, [
+    router.isReady,
+    router.query.id,
+    router,
+    showToast,
+    user,
+    isAdmin,
+    gateReady,
+  ]);
 
   useEffect(() => {
     const intervalId = setInterval(() => {
@@ -816,7 +837,9 @@ export default function FormPage() {
                 : field.required
             }
             disabled={
-              field.name === "cnicExpiry" ? Boolean(formData.cnicLifetime) : false
+              field.name === "cnicExpiry"
+                ? Boolean(formData.cnicLifetime)
+                : false
             }
             inputRef={refCallback}
           />
@@ -925,12 +948,17 @@ export default function FormPage() {
   return (
     <>
       <Head>
-        <title>
-          {recordId ? "Edit Form" : "New Form"} | HEIPL-E2P
-        </title>
+        <title>{recordId ? "Edit Form" : "New Form"} | HEIPL-E2P</title>
       </Head>
 
       <Layout title={recordId ? "Edit Form" : "New Form"}>
+        {isAdmin && formData.submittedByEmail && (
+          <div className="mx-4 mt-4 rounded-xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-navy-600">
+            Originally uploaded by {formData.fieldAgentName || "agent"} (
+            {formData.submittedByEmail}). Your edits will update the same Google
+            Sheet row.
+          </div>
+        )}
         {Object.keys(errors).length > 0 && (
           <div className="px-4 pt-4">
             <ErrorSummary errors={errors} fieldRefs={fieldRefs.current} />
@@ -996,7 +1024,7 @@ export default function FormPage() {
                 defaultOpen={section.defaultOpen}
                 isOfficeSection={section.key === "H"}
               >
-                <div className="col-span-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="flex flex-col gap-4">
                   {sectionFields.map((field) => renderField(field))}
                   {section.key === "E" && (
                     <div className="col-span-2 mt-2 border-t border-gray-100 pt-4">
