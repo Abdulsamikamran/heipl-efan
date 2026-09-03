@@ -45,10 +45,10 @@ export default async function handler(req, res) {
       continue;
     }
 
-    const fileName = `${type}_${recordId.substring(0, 8)}.jpg`;
+    const fileName = `${type}_${String(recordId).substring(0, 8)}.jpg`;
     const uploadResult = await uploadPhotoToDrive(drive, base64, fileName);
 
-    if (uploadResult) {
+    if (uploadResult?.url) {
       results.push({
         photoId,
         driveFileId: uploadResult.fileId,
@@ -60,7 +60,7 @@ export default async function handler(req, res) {
         photoId,
         driveFileId: null,
         driveUrl: null,
-        error: 'Upload failed',
+        error: uploadResult?.error || 'Upload failed',
       });
     }
   }
